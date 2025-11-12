@@ -1,0 +1,87 @@
+{
+  "Natural timber": {
+    "standard": "EN 14081-1",
+    "values": {
+      "1": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "2": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "3": {"Permanent": 0.50, "Long-term": 0.55, "Medium-term": 0.65, "Short-term": 0.70, "Instantaneous": 0.90}
+    }
+  },
+
+  "Glued laminated timber": {
+    "standard": "EN 14080",
+    "values": {
+      "1": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "2": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "3": {"Permanent": 0.50, "Long-term": 0.55, "Medium-term": 0.65, "Short-term": 0.70, "Instantaneous": 0.90}
+    }
+  },
+
+  "Laminated veneer lumber (LVL)": {
+    "standard": "EN 14374, EN 14279",
+    "values": {
+      "1": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "2": {"Permanent": 0.60, "Long-term": 0.70, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "3": {"Permanent": 0.50, "Long-term": 0.55, "Medium-term": 0.65, "Short-term": 0.70, "Instantaneous": 0.90}
+    }
+  },
+
+  "Plywood": {
+    "standard": "EN 636",
+    "values": {
+      "1": {"Permanent": 0.60, "Long-term": 0.65, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "2": {"Permanent": 0.60, "Long-term": 0.65, "Medium-term": 0.80, "Short-term": 0.90, "Instantaneous": 1.10},
+      "3": {"Permanent": 0.55, "Long-term": 0.60, "Medium-term": 0.75, "Short-term": 0.85, "Instantaneous": 1.00}
+    }
+  },
+
+  "Oriented strand board (OSB)": {
+    "standard": "EN 300",
+    "values": {
+      "OSB/2": {
+        "1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10},
+        "2": {"Permanent": 0.40, "Long-term": 0.50, "Medium-term": 0.70, "Short-term": 0.85, "Instantaneous": 1.10},
+        "3": {"Permanent": 0.30, "Long-term": 0.40, "Medium-term": 0.55, "Short-term": 0.70, "Instantaneous": 0.90}
+      },
+      "OSB/3, OSB/4": {
+        "1": {"Permanent": 0.40, "Long-term": 0.50, "Medium-term": 0.70, "Short-term": 0.85, "Instantaneous": 1.10},
+        "2": {"Permanent": 0.40, "Long-term": 0.50, "Medium-term": 0.70, "Short-term": 0.85, "Instantaneous": 1.10},
+        "3": {"Permanent": 0.30, "Long-term": 0.40, "Medium-term": 0.55, "Short-term": 0.70, "Instantaneous": 0.90}
+      }
+    }
+  },
+
+  "Particleboard": {
+    "standard": "EN 312",
+    "values": {
+      "4": {"1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10}},
+      "5": {"1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10}},
+      "6": {"1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10}},
+      "7": {"1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10}}
+    }
+  },
+
+  "Hardboard": {
+    "standard": "EN 622-2",
+    "values": {
+      "1": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10},
+      "2": {"Permanent": 0.30, "Long-term": 0.45, "Medium-term": 0.65, "Short-term": 0.85, "Instantaneous": 1.10}
+    }
+  },
+
+  "Medium board": {
+    "standard": "EN 622-3",
+    "values": {
+      "1": {"Permanent": 0.20, "Long-term": 0.40, "Medium-term": 0.60, "Short-term": 0.80, "Instantaneous": 1.00},
+      "2": {"Permanent": 0.20, "Long-term": 0.40, "Medium-term": 0.60, "Short-term": 0.80, "Instantaneous": 1.00}
+    }
+  },
+
+  "MDF board": {
+    "standard": "EN 622-5",
+    "values": {
+      "1": {"Permanent": 0.20, "Long-term": 0.40, "Medium-term": 0.60, "Short-term": 0.80, "Instantaneous": 1.00},
+      "2": {"Permanent": 0.20, "Long-term": 0.40, "Medium-term": 0.60, "Short-term": 0.80, "Instantaneous": 1.00}
+    }
+  }
+}
