@@ -1,222 +1,561 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LINEAL Timber EC5 Design</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <style>
-    :root {
-      --main:#1e3a8a; --accent:#3b82f6; --soft:#f1f5f9;
-    }
-    body { background: var(--soft); color:#111; font-family: "Inter", sans-serif; }
-    h2 { color: var(--main); font-weight: 600; }
-    .card { border:none; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
-    .btn-primary { background:var(--accent); border:none; }
-    .result-box { background:#fff; border-radius:12px; padding:1rem; margin-bottom:1rem; font-size:0.95rem; }
-    .util-pass { color:#15803d; font-weight:600; }
-    .util-fail { color:#b91c1c; font-weight:600; }
-    svg { background:#fff; border:1px dashed #cbd5e1; border-radius:8px; margin-top:10px; }
-    .report-title { background:var(--main); color:#fff; padding:8px 14px; border-radius:8px; font-weight:600; }
-    .fade-in { animation: fadeIn .4s ease-in; }
-    @keyframes fadeIn { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
-  </style>
+    <meta charset="UTF-8">
+    <title>Timber EC5 Checks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap 5 -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <style>
+        body {
+            background: #f5f7fb;
+        }
+        .card {
+            border-radius: 0.75rem;
+        }
+        .badge-shape {
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+        }
+        .util-ok {
+            color: #198754;
+            font-weight: 600;
+        }
+        .util-not-ok {
+            color: #dc3545;
+            font-weight: 700;
+        }
+        .governing-row {
+            border-left: 4px solid #0d6efd;
+            background: #e9f2ff;
+        }
+        .small-label {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .dims-group {
+            display: none;
+        }
+    </style>
 </head>
-<body class="container py-4">
-
-  <div class="d-flex align-items-center mb-3">
-    <i class="bi bi-tree-fill fs-3 text-primary me-2"></i>
-    <h2 class="mb-0">LINEAL Timber Design — EC5 Calculator</h2>
-  </div>
-
-  <!-- Input form -->
-  <form id="calcForm" class="row g-3">
-    <div class="col-md-3">
-      <label class="form-label">Section Type</label>
-      <select id="section_type" class="form-select">
-        {% for s in section_types %}
-        <option value="{{s}}">{{s}}</option>
-        {% endfor %}
-      </select>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container-fluid">
+        <span class="navbar-brand">Timber EC5 Checker</span>
     </div>
-    <div class="col-md-3">
-      <label class="form-label">Timber Class</label>
-      <select id="timber_class" class="form-select">
-        {% for c in timber_classes %}
-        <option value="{{c}}">{{c}}</option>
-        {% endfor %}
-      </select>
+</nav>
+
+<div class="container-fluid mb-4">
+    <div class="row g-4">
+        <!-- LEFT: FORM -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Input</h5>
+                    {% if errors %}
+                        <div class="alert alert-danger">
+                            <ul class="mb-0">
+                                {% for e in errors %}
+                                    <li>{{ e }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endif %}
+
+                    <form method="post" novalidate>
+                        <!-- Section type -->
+                        <div class="mb-3">
+                            <label class="form-label">Section shape</label>
+                            <select id="shape-select" name="shape" class="form-select">
+                                {% for shape in shapes %}
+                                    <option value="{{ shape }}"
+                                            {% if shape == selected_shape %}selected{% endif %}>
+                                        {{ shape }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text small-label">
+                                Fields below change depending on shape.
+                            </div>
+                        </div>
+
+                        <!-- Timber class / material -->
+                        <div class="mb-3">
+                            <label class="form-label">Timber strength class</label>
+                            <select name="timber_class" class="form-select">
+                                {% for cls in timber_classes %}
+                                    <option value="{{ cls }}"
+                                            {% if cls == selected_class %}selected{% endif %}>
+                                        {{ cls }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Material type (for kmod)</label>
+                            <select name="material_type" class="form-select">
+                                {% for mt in material_types %}
+                                    <option value="{{ mt }}"
+                                            {% if mt == selected_material %}selected{% endif %}>
+                                        {{ mt }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+<div class="mb-3 mt-2">
+    <label class="form-label">γ<sub>M</sub> (material partial factor)</label>
+    <input type="number" step="0.01" name="gamma_M" class="form-control"
+           value="{{ form_values.get('gamma_M', gamma_default) }}">
+    <div class="form-text small-label">
+        Leave empty or 0 to use default for the selected material
+        (≈ {{ "%.2f"|format(gamma_default) }}).
     </div>
-    <div class="col-md-3">
-      <label class="form-label">Material</label>
-      <select id="material" class="form-select">
-        {% for m in materials %}
-        <option value="{{m}}">{{m}}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-3">
-      <label class="form-label">Service Class</label>
-      <select id="service_class" class="form-select">
-        <option value="1">1</option>
-        <option value="2" selected>2</option>
-        <option value="3">3</option>
-      </select>
-    </div>
+</div>
 
-    <div class="col-md-3">
-      <label class="form-label">Load Duration</label>
-      <select id="load_class" class="form-select">
-        <option>Permanent</option>
-        <option>Long-term</option>
-        <option selected>Medium-term</option>
-        <option>Short-term</option>
-        <option>Instantaneous</option>
-      </select>
-    </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label">Service class</label>
+                                <select name="service_class" class="form-select">
+                                    {% for sc in service_classes %}
+                                        <option value="{{ sc }}"
+                                                {% if sc == selected_service %}selected{% endif %}>
+                                            {{ sc }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Load duration</label>
+                                <select name="load_class" class="form-select">
+                                    {% for lc in load_classes %}
+                                        <option value="{{ lc }}"
+                                                {% if lc == selected_load_class %}selected{% endif %}>
+                                            {{ lc }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
 
-    <!-- dynamic geometry fields -->
-    <div id="dynamicInputs" class="row g-3"></div>
+                        <hr>
 
-    <!-- loads -->
-    <hr>
-    <div class="col-md-2"><label class="form-label">N<sub>Ed</sub> (kN)</label><input id="Ned_kN" class="form-control" value="0"></div>
-    <div class="col-md-2"><label class="form-label">M<sub>yd</sub> (kNm)</label><input id="Myd_kNm" class="form-control" value="0"></div>
-    <div class="col-md-2"><label class="form-label">M<sub>zd</sub> (kNm)</label><input id="Mzd_kNm" class="form-control" value="0"></div>
-    <div class="col-md-2"><label class="form-label">V<sub>Ed</sub> (kN)</label><input id="Ved_kN" class="form-control" value="0"></div>
+                        <!-- Dimensions (dynamic by shape) -->
+                        <h6 class="mt-3">Section dimensions</h6>
 
-    <div class="col-12">
-      <button type="button" id="runCheck" class="btn btn-primary mt-3 px-4">
-        <i class="bi bi-cpu me-2"></i>Run Check
-      </button>
-    </div>
-  </form>
+                        <!-- Rectangle -->
+                        <div class="dims-group" data-shape="rectangle">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">b</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-  <!-- results -->
-  <div id="results" class="mt-4"></div>
+                        <!-- Circle / CHS -->
+                        <div class="dims-group" data-shape="circle chs">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">d</label>
+                                    <input type="number" step="any" name="d" class="form-control"
+                                           value="{{ form_values.get('d', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">t (CHS)</label>
+                                    <input type="number" step="any" name="t" class="form-control"
+                                           value="{{ form_values.get('t', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-  <script>
-    const sectionInputs = {{ section_inputs | tojson | safe }};
-    const sectionSelect = document.getElementById("section_type");
-    const dynamicInputs = document.getElementById("dynamicInputs");
+                        <!-- Ellipse -->
+                        <div class="dims-group" data-shape="ellipse">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">a (major)</label>
+                                    <input type="number" step="any" name="a" class="form-control"
+                                           value="{{ form_values.get('a', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">b (minor)</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-    // generate dynamic fields
-    function updateInputs() {
-      dynamicInputs.innerHTML = "";
-      const fields = sectionInputs[sectionSelect.value] || [];
-      fields.forEach(f => {
-        const col = document.createElement("div");
-        col.classList.add("col-md-2");
-        col.innerHTML = `<label class="form-label">${f} (mm)</label>
-                         <input type="number" id="${f}" class="form-control" value="200">`;
-        dynamicInputs.appendChild(col);
-      });
-    }
-    sectionSelect.addEventListener("change", updateInputs);
-    updateInputs();
+                        <!-- RHS -->
+                        <div class="dims-group" data-shape="rhs">
+                            <div class="row g-2">
+                                <div class="col-4">
+                                    <label class="form-label">b</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">t</label>
+                                    <input type="number" step="any" name="t" class="form-control"
+                                           value="{{ form_values.get('t', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-    // draw simple SVG previews
-    function drawSection(section, geom) {
-      const color = "#3b82f6";
-      let svg="";
-      if(section==="Rectangle"){
-        const b=geom.b,h=geom.h;
-        svg=`<svg width="${b/2+60}" height="${h/2+60}">
-          <rect x="30" y="30" width="${b/2}" height="${h/2}" fill="${color}" opacity="0.85"/>
-        </svg>`;
-      }else if(section==="Circle"||section==="CHS"){
-        const d=geom.d;
-        svg=`<svg width="${d/2+60}" height="${d/2+60}">
-          <circle cx="${d/4+30}" cy="${d/4+30}" r="${d/4}" fill="${color}" opacity="0.85"/></svg>`;
-      }else if(section==="RHS/SHS"){
-        const b=geom.b,h=geom.h,t=geom.t;
-        svg=`<svg width="${b/2+60}" height="${h/2+60}">
-          <rect x="30" y="30" width="${b/2}" height="${h/2}" fill="none" stroke="${color}" stroke-width="${t/4}"/></svg>`;
-      }else{
-        svg=`<svg width="200" height="100"><text x="20" y="60">Preview N/A</text></svg>`;
-      }
-      return svg;
-    }
+                        <!-- I-section -->
+                        <div class="dims-group" data-shape="i_section">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">b</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">tw</label>
+                                    <input type="number" step="any" name="tw" class="form-control"
+                                           value="{{ form_values.get('tw', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">tf</label>
+                                    <input type="number" step="any" name="tf" class="form-control"
+                                           value="{{ form_values.get('tf', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-    // safe numeric display
-    function safe(v, dec=2) {
-      return (v!==undefined && v!==null && !isNaN(v)) ? v.toFixed(dec) : "—";
-    }
+                        <!-- T-section -->
+                        <div class="dims-group" data-shape="t_section">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">b</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">tw</label>
+                                    <input type="number" step="any" name="tw" class="form-control"
+                                           value="{{ form_values.get('tw', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">tf</label>
+                                    <input type="number" step="any" name="tf" class="form-control"
+                                           value="{{ form_values.get('tf', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-    // run check
-    document.getElementById("runCheck").addEventListener("click", async()=>{
-      const payload={
-        section_type:sectionSelect.value,
-        timber_class:document.getElementById("timber_class").value,
-        material:document.getElementById("material").value,
-        service_class:document.getElementById("service_class").value,
-        load_class:document.getElementById("load_class").value,
-        Ned_kN:document.getElementById("Ned_kN").value,
-        Myd_kNm:document.getElementById("Myd_kNm").value,
-        Mzd_kNm:document.getElementById("Mzd_kNm").value,
-        Ved_kN:document.getElementById("Ved_kN").value
-      };
-      (sectionInputs[sectionSelect.value]||[]).forEach(f=>{
-        payload[f]=document.getElementById(f).value;
-      });
+                        <!-- Trapezoid -->
+                        <div class="dims-group" data-shape="trapezoid">
+                            <div class="row g-2">
+                                <div class="col-4">
+                                    <label class="form-label">b1 (bottom)</label>
+                                    <input type="number" step="any" name="b1" class="form-control"
+                                           value="{{ form_values.get('b1', '') }}">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">b2 (top)</label>
+                                    <input type="number" step="any" name="b2" class="form-control"
+                                           value="{{ form_values.get('b2', '') }}">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-      const res=await fetch("/api/run_check",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-      const data=await res.json();
-      const geom=payload; const svg=drawSection(sectionSelect.value,geom);
+                        <!-- Triangle -->
+                        <div class="dims-group" data-shape="triangle">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label">b</label>
+                                    <input type="number" step="any" name="b" class="form-control"
+                                           value="{{ form_values.get('b', '') }}">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">h</label>
+                                    <input type="number" step="any" name="h" class="form-control"
+                                           value="{{ form_values.get('h', '') }}">
+                                </div>
+                            </div>
+                        </div>
 
-      // Extended report
-      const report=`
-        <div class="card p-4 fade-in">
-          <div class="report-title mb-3">
-            <i class="bi bi-clipboard-data me-2"></i>Extended Report — ${sectionSelect.value}
-          </div>
-          <div class="row">
-            <div class="col-md-6">
-              <div class="result-box">
-                <b>Geometry:</b><br>
-                A = ${safe(data.geom?.A,1)} mm²<br>
-                I<sub>y</sub> = ${safe(data.geom?.Iy,0)} mm⁴<br>
-                I<sub>z</sub> = ${safe(data.geom?.Iz,0)} mm⁴<br>
-                W<sub>y</sub> = ${safe(data.geom?.Wy,1)} mm³<br>
-                W<sub>z</sub> = ${safe(data.geom?.Wz,1)} mm³<br>
-              </div>
+                        <div class="form-text small-label mt-1">
+                            Units must be consistent (e.g. mm).
+                        </div>
 
-              <div class="result-box">
-                <b>Design strengths (αντοχές):</b><br>
-                f<sub>t,0,d</sub> = ${safe(data.ft0d)} MPa<br>
-                f<sub>c,0,d</sub> = ${safe(data.fc0d)} MPa<br>
-                f<sub>m,d</sub> = ${safe(data.fmd)} MPa<br>
-                f<sub>v,d</sub> = ${safe(data.fvd)} MPa
-              </div>
+                        <hr>
 
-              <div class="result-box">
-                <b>Stresses:</b><br>
-                σ<sub>c</sub> = ${safe(data.sigma_c)} MPa<br>
-                σ<sub>t</sub> = ${safe(data.sigma_t)} MPa<br>
-                σ<sub>My</sub> = ${safe(data.sigma_my)} MPa<br>
-                σ<sub>Mz</sub> = ${safe(data.sigma_mz)} MPa<br>
-                τ<sub>v</sub> = ${safe(data.tau_v)} MPa
-              </div>
+                        <!-- Internal forces -->
+                        <h6 class="mt-3">Internal forces (design values)</h6>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label">N [N]</label>
+                                <input type="number" step="any" name="N" class="form-control"
+                                       value="{{ form_values.get('N', '') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Mx [N·mm]</label>
+                                <input type="number" step="any" name="Mx" class="form-control"
+                                       value="{{ form_values.get('Mx', '') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">My [N·mm]</label>
+                                <input type="number" step="any" name="My" class="form-control"
+                                       value="{{ form_values.get('My', '') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Vx [N]</label>
+                                <input type="number" step="any" name="Vx" class="form-control"
+                                       value="{{ form_values.get('Vx', '') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Vy [N]</label>
+                                <input type="number" step="any" name="Vy" class="form-control"
+                                       value="{{ form_values.get('Vy', '') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">T [N·mm]</label>
+                                <input type="number" step="any" name="T" class="form-control"
+                                       value="{{ form_values.get('T', '') }}">
+                            </div>
+                        </div>
 
-              <div class="result-box">
-                <b>Utilization Ratios:</b><br>
-                Axial tension: <span class="${data.util_tension<1?'util-pass':'util-fail'}">${safe(data.util_tension,3)}</span><br>
-                Shear: <span class="${data.util_shear<1?'util-pass':'util-fail'}">${safe(data.util_shear,3)}</span><br>
-                Bending: <span class="${data.util_bending<1?'util-pass':'util-fail'}">${safe(data.util_bending,3)}</span><br>
-                N-M (Tension): <span class="${data.util_NM_tension<1?'util-pass':'util-fail'}">${safe(data.util_NM_tension,3)}</span><br>
-                N-M (Compression): <span class="${data.util_NM_compression<1?'util-pass':'util-fail'}">${safe(data.util_NM_compression,3)}</span>
-              </div>
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-primary">
+                                Run EC5 checks
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
+        </div>
 
-            <div class="col-md-6 d-flex flex-column align-items-center justify-content-center">
-              ${svg}
-              <small class="text-muted mt-2">Geometric preview (not to scale)</small>
-            </div>
-          </div>
-        </div>`;
-      document.getElementById("results").innerHTML=report;
+        <!-- RIGHT: RESULTS -->
+        <div class="col-lg-8">
+            {% if result %}
+                <div class="row g-4">
+                    <!-- Summary header -->
+                    <div class="col-12">
+                        <div class="card shadow-sm mb-2">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-secondary badge-shape">
+                                        {{ result.shape }}
+                                    </span>
+                                    <h5 class="mt-2 mb-1">
+                                        Timber class: {{ selected_class }}
+                                    </h5>
+                                    <p class="mb-0 small">
+                                        Material: {{ selected_material }} &nbsp;|&nbsp;
+                                        Service class: {{ selected_service }} &nbsp;|&nbsp;
+                                        Load duration: {{ selected_load_class }}
+                                    </p>
+                                </div>
+                                <div class="text-end">
+                                    <div class="small text-muted">Governing check</div>
+                                    {% set g = result.governing_check %}
+                                    <div>
+                                        <strong>{{ g.name }}</strong><br>
+                                        {% if g.utilization <= g.limit %}
+                                            <span class="util-ok">
+                                                η = {{ "%.3f"|format(g.utilization) }}
+                                            </span>
+                                        {% else %}
+                                            <span class="util-not-ok">
+                                                η = {{ "%.3f"|format(g.utilization) }}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section properties -->
+                    <div class="col-md-6">
+                        <div class="card shadow-sm">
+                            <div class="card-body">
+                                <h6 class="card-title">Section properties</h6>
+                                {% if section_props %}
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                        {% for k, v in section_props.items() %}
+                                            <tr>
+                                                <td>{{ k }}</td>
+                                                <td class="text-end">
+                                                    {% if v is not none %}
+                                                        {{ "%.4g"|format(v) }}
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <p class="text-muted mb-0">No section properties computed.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Design strengths -->
+                    <div class="col-md-6">
+                        <div class="card shadow-sm">
+                            <div class="card-body">
+                                <h6 class="card-title">Design strengths (EC5)</h6>
+                                {% if strengths %}
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                        {% for k, v in strengths.items() %}
+                                            <tr>
+                                                <td>{{ k }}</td>
+                                                <td class="text-end">
+                                                    {% if v is not none %}
+                                                        {{ "%.3f"|format(v) }}
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <p class="text-muted mb-0">No strengths computed.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Checks table -->
+                    <div class="col-12">
+                        <div class="card shadow-sm">
+                            <div class="card-body">
+                                <h6 class="card-title">Checks</h6>
+                                {% if result.checks %}
+                                    <table class="table table-sm align-middle">
+                                        <thead>
+                                        <tr>
+                                            <th>Check</th>
+                                            <th class="text-end">η</th>
+                                            <th class="text-end">Limit</th>
+                                            <th>Status</th>
+                                            <th>Details</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        {% for chk in result.checks %}
+                                            {% set is_governing = (chk.name == result.governing_check.name) %}
+                                            <tr class="{% if is_governing %}governing-row{% endif %}">
+                                                <td>{{ chk.name }}</td>
+                                                <td class="text-end">
+                                                    {% if chk.utilization <= chk.limit %}
+                                                        <span class="util-ok">
+                                                            {{ "%.3f"|format(chk.utilization) }}
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="util-not-ok">
+                                                            {{ "%.3f"|format(chk.utilization) }}
+                                                        </span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end">{{ "%.3f"|format(chk.limit) }}</td>
+                                                <td>
+                                                    {% if chk.ok %}
+                                                        <span class="badge bg-success">OK</span>
+                                                    {% else %}
+                                                        <span class="badge bg-danger">NOT OK</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td><span class="small">{{ chk.details }}</span></td>
+                                            </tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <p class="text-muted mb-0">No checks performed.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <!-- Initial welcome text -->
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5>Welcome 👋</h5>
+                        <p class="mb-1">
+                            Choose the section shape, enter dimensions, timber class, material parameters and internal forces,
+                            then click <strong>Run EC5 checks</strong>.
+                        </p>
+                        <p class="mb-0 small text-muted">
+                            Units must be consistent (e.g. forces in N, moments in N·mm, dimensions in mm).
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    function updateDimsVisibility() {
+        const select = document.getElementById("shape-select");
+        const shape = select.value;
+        const groups = document.querySelectorAll(".dims-group");
+
+        groups.forEach(group => {
+            const shapes = group.dataset.shape.split(" ");
+            const inputs = group.querySelectorAll("input");
+
+            if (shapes.includes(shape)) {
+                group.style.display = "block";
+                inputs.forEach(i => i.disabled = false);
+            } else {
+                group.style.display = "none";
+                inputs.forEach(i => i.disabled = true);
+            }
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        updateDimsVisibility();
+        const select = document.getElementById("shape-select");
+        select.addEventListener("change", updateDimsVisibility);
     });
-  </script>
+</script>
+
 </body>
 </html>

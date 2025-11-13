@@ -11,6 +11,14 @@ ShapeName = Literal[
     "trapezoid", "triangle"
 ]
 
+# --- NEW: optional sectionproperties dependency -----------------------------
+try:
+    from sectionproperties.pre.library import primitive_sections, steel_sections
+    from sectionproperties.analysis.section import Section as SPSection
+    _HAS_SECPROPS = True
+except ImportError:   # library not installed → fine, we fall back
+    _HAS_SECPROPS = False
+
 @dataclass
 class SectionProps:
     # All about centroidal axes x (horizontal) & y (vertical), origin at centroid.
@@ -39,6 +47,9 @@ class SectionProps:
     # Plastic section moduli (when simple/known; else None)
     Zx: Optional[float] = None
     Zy: Optional[float] = None
+        # --- NEW: shear areas for Vx, Vy (used in τ = V / Av) -------------------
+    Av_x: Optional[float] = None
+    Av_y: Optional[float] = None
 
 # -------------------------------
 # Utility: polygon property engine
@@ -306,7 +317,127 @@ def _triangle_props(b: float, h: float) -> SectionProps:
     Jp = Ixx + Iyy
     return SectionProps(A, 0.0, 0.0, Ixx, Iyy, Ixy, yt, yb, xr, xl,
                         Sx_top, Sx_bot, Sy_right, Sy_left, rx, ry, Jp, None, None, None)
+# -------------------------------
+# Shear area helpers (Option A)
+# -------------------------------
 
+def _compute_shear_areas_sp(shape: str, dims: Dict[str, float], A: float) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Try to compute shear areas (Av_x, Av_y) using the sectionproperties library.
+    If not available or shape not mapped, returns (None, None).
+    """
+    if not _HAS_SECPROPS:
+        return None, None
+
+    s = shape.lower()
+
+    # Map our shapes → sectionproperties geometries
+    try:
+        geom = None
+
+        if s == "rectangle":
+            b = dims["b"]; h = dims["h"]
+            geom = primitive_sections.rectangular_section(b=b, d=h)
+
+        elif s == "circle":
+            d = dims["d"]
+            geom = primitive_sections.circular_section(d=d)
+
+        elif s == "ellipse":
+            a = dims["a"]; b = dims["b"]
+            geom = primitive_sections.elliptical_section(b=a, d=b)
+
+        elif s == "rhs":
+            b = dims["b"]; h = dims["h"]; t = dims["t"]
+            geom = steel_sections.rectangular_hollow_section(
+                d=h, b=b, t_f=t, t_w=t, r_out=0.0, n_r=8
+            )
+
+        elif s == "chs":
+            d = dims["d"]; t = dims["t"]
+            geom = steel_sections.circular_hollow_section(d=d, t=t)
+
+        elif s == "i_section":
+            h = dims["h"]; b = dims["b"]; tw = dims["tw"]; tf = dims["tf"]
+            geom = steel_sections.i_section(
+                d=h, b=b, t_f=tf, t_w=tw, r=0.0, n_r=8
+            )
+
+        elif s == "t_section":
+            h = dims["h"]; b = dims["b"]; tw = dims["tw"]; tf = dims["tf"]
+            geom = steel_sections.tee_section(
+                d=h, b=b, t_f=tf, t_w=tw, r=0.0, n_r=8
+            )
+
+        # More shapes can be mapped later...
+
+        if geom is None:
+            return None, None
+
+        # crude mesh size ~ 1/10 of max dimension
+        max_dim = max(dims.values()) if dims else 1.0
+        geom.create_mesh(mesh_sizes=[max_dim / 10.0])
+
+        sec = SPSection(geometry=geom)
+        sec.calculate_geometric_properties()
+        sec.calculate_warping_properties()
+
+        # sectionproperties uses (Asx, Asy) in the section x-y system
+        Asx, Asy = sec.get_as()
+        return float(abs(Asx)), float(abs(Asy))
+
+    except Exception:
+        # any failure → just skip and fall back to simple k·A
+        return None, None
+
+
+def _approx_shear_areas(shape: str, A: float) -> Tuple[float, float]:
+    """
+    Simple engineering approximations for shear area.
+    Used when sectionproperties is not available or fails.
+    """
+    s = shape.lower()
+
+    # classic values (approximate, EC5-compatible level)
+    if s in ("rectangle", "trapezoid", "triangle"):
+        k = 5.0 / 6.0   # solid rectangular-ish
+        return k * A, k * A
+
+    if s in ("circle", "chs"):
+        k = 0.9         # solid/hollow circular, rough
+        return k * A, k * A
+
+    if s in ("i_section", "t_section", "rhs"):
+        # very rough: most shear in web → ~0.8A
+        k = 0.8
+        return k * A, k * A
+
+    # default conservative fallback
+    return A, A
+
+
+def _attach_shear_areas(shape: str, dims: Dict[str, float], P: SectionProps) -> SectionProps:
+    """
+    Fill P.Av_x and P.Av_y using:
+        1) sectionproperties (if available, mapped)
+        2) otherwise approximate k·A
+    """
+    Avx_sp, Avy_sp = _compute_shear_areas_sp(shape, dims, P.A)
+
+    if Avx_sp is not None and Avy_sp is not None:
+        P.Av_x = Avx_sp
+        P.Av_y = Avy_sp
+        return P
+
+    # fallback
+    Avx, Avy = _approx_shear_areas(shape, P.A)
+    P.Av_x = Avx
+    P.Av_y = Avy
+    return P
+
+# -------------------------------
+# Public API
+# -------------------------------
 # -------------------------------
 # Public API
 # -------------------------------
@@ -314,44 +445,51 @@ def get_section_properties(shape: ShapeName, **dims) -> Dict[str, float]:
     """
     Returns a dict with standard centroidal properties:
     A, cx, cy, Ixx, Iyy, Ixy, y_top, y_bot, x_right, x_left,
-    Sx_top, Sx_bot, Sy_right, Sy_left, rx, ry, Jp, Jt (opt), Zx (opt), Zy (opt)
+    Sx_top, Sx_bot, Sy_right, Sy_left, rx, ry, Jp,
+    optional: Jt, Zx, Zy, Av_x, Av_y
 
-    Dimensions are in consistent units (e.g., mm). Outputs are in those units:
+    Dimensions are in consistent units (e.g. mm). Outputs are in those units:
     - Area -> units^2
     - Inertias -> units^4
     - Section moduli -> units^3
     - Radii of gyration -> units
     """
     s = shape.lower()
+    # cast dims to float once
+    dims_f = {k: float(v) for k, v in dims.items()}
+
     if s == "rectangle":
-        b = float(dims["b"]); h = float(dims["h"])
+        b = dims_f["b"]; h = dims_f["h"]
         P = _rect_props(b, h)
     elif s == "circle":
-        d = float(dims["d"])
+        d = dims_f["d"]
         P = _circle_props(d)
     elif s == "ellipse":
-        a = float(dims["a"]); b = float(dims["b"])
+        a = dims_f["a"]; b = dims_f["b"]
         P = _ellipse_props(a, b)
     elif s == "rhs":
-        b = float(dims["b"]); h = float(dims["h"]); t = float(dims["t"])
+        b = dims_f["b"]; h = dims_f["h"]; t = dims_f["t"]
         P = _rhs_props(b, h, t)
     elif s == "chs":
-        d = float(dims["d"]); t = float(dims["t"])
+        d = dims_f["d"]; t = dims_f["t"]
         P = _chs_props(d, t)
     elif s == "i_section":
-        h = float(dims["h"]); b = float(dims["b"]); tw = float(dims["tw"]); tf = float(dims["tf"])
+        h = dims_f["h"]; b = dims_f["b"]; tw = dims_f["tw"]; tf = dims_f["tf"]
         P = _i_section_props(h, b, tw, tf)
     elif s == "t_section":
-        h = float(dims["h"]); b = float(dims["b"]); tw = float(dims["tw"]); tf = float(dims["tf"])
+        h = dims_f["h"]; b = dims_f["b"]; tw = dims_f["tw"]; tf = dims_f["tf"]
         P = _t_section_props(h, b, tw, tf)
     elif s == "trapezoid":
-        b1 = float(dims["b1"]); b2 = float(dims["b2"]); h = float(dims["h"])
+        b1 = dims_f["b1"]; b2 = dims_f["b2"]; h = dims_f["h"]
         P = _trapezoid_props(b1, b2, h)
     elif s == "triangle":
-        b = float(dims["b"]); h = float(dims["h"])
+        b = dims_f["b"]; h = dims_f["h"]
         P = _triangle_props(b, h)
     else:
         raise ValueError(f"Unsupported shape: {shape}")
+
+    # --- NEW: attach shear areas (Av_x, Av_y) -------------------------------
+    P = _attach_shear_areas(s, dims_f, P)
 
     # Pack to dict
     out = {
@@ -359,89 +497,19 @@ def get_section_properties(shape: ShapeName, **dims) -> Dict[str, float]:
         "Ixx": P.Ixx, "Iyy": P.Iyy, "Ixy": P.Ixy,
         "y_top": P.y_top, "y_bot": P.y_bot, "x_right": P.x_right, "x_left": P.x_left,
         "Sx_top": P.Sx_top, "Sx_bot": P.Sx_bot, "Sy_right": P.Sy_right, "Sy_left": P.Sy_left,
-        "rx": P.rx, "ry": P.ry, "Jp": P.Jp
+        "rx": P.rx, "ry": P.ry, "Jp": P.Jp,
     }
-    if P.Jt is not None: out["Jt"] = P.Jt
-    if P.Zx is not None: out["Zx"] = P.Zx
-    if P.Zy is not None: out["Zy"] = P.Zy
+    if P.Jt is not None:
+        out["Jt"] = P.Jt
+    if P.Zx is not None:
+        out["Zx"] = P.Zx
+    if P.Zy is not None:
+        out["Zy"] = P.Zy
+    if P.Av_x is not None:
+        out["Av_x"] = P.Av_x
+    if P.Av_y is not None:
+        out["Av_y"] = P.Av_y
+
     return out
-import math
 
-def section_properties(section_type: str, **kwargs):
-    """Return area [mm²], Iy, Iz [mm⁴], Wy, Wz [mm³] for a given section type."""
-    s = section_type.lower()
-    
-    if s == "rectangle":
-        b, h = kwargs["b"], kwargs["h"]
-        A = b * h
-        Iy = b * h**3 / 12
-        Iz = h * b**3 / 12
-        Wy = Iy / (h/2)
-        Wz = Iz / (b/2)
 
-    elif s == "circle":
-        d = kwargs["d"]
-        r = d / 2
-        A = math.pi * r**2
-        Iy = Iz = (math.pi * d**4) / 64
-        Wy = Wz = Iy / r
-
-    elif s == "ellipse":
-        a, b = kwargs["a"], kwargs["b"]
-        A = math.pi * a * b / 4
-        Iy = math.pi * a * b**3 / 64
-        Iz = math.pi * b * a**3 / 64
-        Wy = Iy / (b/2)
-        Wz = Iz / (a/2)
-
-    elif s == "rhs/shs":
-        b, h, t = kwargs["b"], kwargs["h"], kwargs["t"]
-        A = b*h - (b-2*t)*(h-2*t)
-        Iy = (b*h**3 - (b-2*t)*(h-2*t)**3)/12
-        Iz = (h*b**3 - (h-2*t)*(b-2*t)**3)/12
-        Wy = Iy / (h/2)
-        Wz = Iz / (b/2)
-
-    elif s == "chs":
-        d, t = kwargs["d"], kwargs["t"]
-        r = d / 2
-        A = math.pi*(r**2 - (r-t)**2)
-        Iy = Iz = (math.pi/4)*(r**4 - (r-t)**4)
-        Wy = Wz = Iy / r
-
-    elif s == "i-section":
-        h, b, tw, tf = kwargs["h"], kwargs["b"], kwargs["tw"], kwargs["tf"]
-        A = 2*b*tf + (h-2*tf)*tw
-        Iy = (b*h**3 - (b-tw)*(h-2*tf)**3)/12
-        Iz = (2*(b**3*tf/12) + ((tw**3)*(h-2*tf)/12))
-        Wy = Iy / (h/2)
-        Wz = Iz / (b/2)
-
-    elif s == "t-section":
-        h, b, tw, tf = kwargs["h"], kwargs["b"], kwargs["tw"], kwargs["tf"]
-        A = b*tf + tw*(h-tf)
-        Iy = (b*h**3 - (b-tw)*(h-tf)**3)/12
-        Iz = (b**3*tf/12) + (tw**3*(h-tf)/12)
-        Wy = Iy / (h/2)
-        Wz = Iz / (b/2)
-
-    elif s == "trapezoid":
-        b1, b2, h = kwargs["b1"], kwargs["b2"], kwargs["h"]
-        A = (b1 + b2)/2 * h
-        Iy = h**3*(b1**2 + 4*b1*b2 + b2**2)/(36*(b1+b2))
-        Iz = A*h**2/12
-        Wy = Iy / (h/2)
-        Wz = Wz = Wy  # approximate
-
-    elif s == "triangle":
-        b, h = kwargs["b"], kwargs["h"]
-        A = 0.5*b*h
-        Iy = b*h**3/36
-        Iz = h*b**3/48
-        Wy = Iy / (h/3)
-        Wz = Iz / (b/3)
-
-    else:
-        raise ValueError(f"Unknown section type: {section_type}")
-
-    return {"A": A, "Iy": Iy, "Iz": Iz, "Wy": Wy, "Wz": Wz}
