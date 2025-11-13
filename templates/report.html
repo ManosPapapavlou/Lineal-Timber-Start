@@ -1,0 +1,544 @@
+<style>
+  .report-body {
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #222;
+  }
+
+  .report-body h1,
+  .report-body h2,
+  .report-body h3,
+  .report-body h4 {
+    color: #222;
+    margin-bottom: 0.2em;
+  }
+
+  .report-body h1 {
+    font-size: 20pt;
+  }
+
+  .report-body h2 {
+    font-size: 16pt;
+    border-bottom: 1px solid #999;
+    padding-bottom: 4px;
+    margin-top: 1em;
+  }
+
+  .report-body h3 {
+    font-size: 13pt;
+    margin-top: 0.8em;
+  }
+
+  .report-body h4 {
+    font-size: 11pt;
+    margin-top: 0.6em;
+  }
+
+  .report-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.8em;
+  }
+
+  .report-body th,
+  .report-body td {
+    border: 1px solid #aaa;
+    padding: 4px 6px;
+  }
+
+  .report-body th {
+    background: #f0f0f0;
+  }
+
+  .report-body .small {
+    font-size: 9pt;
+    color: #555;
+  }
+
+  .report-body .ok {
+    color: #006600;
+    font-weight: bold;
+  }
+
+  .report-body .not-ok {
+    color: #cc0000;
+    font-weight: bold;
+  }
+
+  .report-body .section-block {
+    margin-bottom: 1.0em;
+  }
+</style>
+
+<div class="report-body">
+
+  {# derive kmod/gamma_M from strengths if not passed explicitly #}
+  {% set kmod = kmod if kmod is defined and kmod is not none else strengths.kmod %}
+  {% set gamma_M = gamma_M if gamma_M is defined and gamma_M is not none else strengths.gamma_M %}
+
+  {% set factor = (kmod / gamma_M) if gamma_M != 0 else 0 %}
+  {% if factor > 0 %}
+  {% set ft0k = strengths.ft0_d / factor %}
+  {% set fc0k = strengths.fc0_d / factor %}
+  {% set fmk = strengths.fm_x_d / factor %}
+  {% set fvk = strengths.fv_d / factor %}
+  {% else %}
+  {% set ft0k = None %}
+  {% set fc0k = None %}
+  {% set fmk = None %}
+  {% set fvk = None %}
+  {% endif %}
+
+  {# extract checks by name #}
+  {% set tension_list = result.checks | selectattr('name', 'equalto', 'Axial tension') | list %}
+  {% set compression_list = result.checks | selectattr('name', 'equalto', 'Axial compression') | list %}
+  {% set bendx_list = result.checks | selectattr('name', 'equalto', 'Bending about x') | list %}
+  {% set bendy_list = result.checks | selectattr('name', 'equalto', 'Bending about y') | list %}
+  {% set bendint_list = result.checks | selectattr('name', 'equalto', 'Bending interaction') | list %}
+  {% set shear_list = result.checks | selectattr('name', 'equalto', 'Shear') | list %}
+  {% set torsion_list = result.checks | selectattr('name', 'equalto', 'Torsion') | list %}
+
+  {% set tension = tension_list[0] if tension_list else None %}
+  {% set compression = compression_list[0] if compression_list else None %}
+  {% set bending_x = bendx_list[0] if bendx_list else None %}
+  {% set bending_y = bendy_list[0] if bendy_list else None %}
+  {% set bending_interaction = bendint_list[0] if bendint_list else None %}
+  {% set shear = shear_list[0] if shear_list else None %}
+  {% set torsion = torsion_list[0] if torsion_list else None %}
+  {% set governing = result.governing_check %}
+
+  <h1>Timber Member EC5 Check – Report</h1>
+
+  <div class="section-block">
+    <h2>1. General Information</h2>
+    <table>
+      <tr>
+        <th>Section shape</th>
+        <td>{{ selected_shape }}</td>
+      </tr>
+      <tr>
+        <th>Timber class</th>
+        <td>{{ selected_class }}</td>
+      </tr>
+      <tr>
+        <th>Material type</th>
+        <td>{{ selected_material }}</td>
+      </tr>
+      <tr>
+        <th>Service class</th>
+        <td>{{ selected_service }}</td>
+      </tr>
+      <tr>
+        <th>Load-duration class</th>
+        <td>{{ selected_load_class }}</td>
+      </tr>
+      <tr>
+        <th>k<sub>mod</sub></th>
+        <td>{{ "%.3f"|format(kmod) }}</td>
+      </tr>
+      <tr>
+        <th>γ<sub>M</sub></th>
+        <td>{{ "%.3f"|format(gamma_M) }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section-block">
+    <h2>2. Section Geometry</h2>
+    {% if section_props %}
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k, v in section_props.items() %}
+        <tr>
+          <td>{{ k }}</td>
+          <td>
+            {% if v is not none %}
+            {{ "%.4g"|format(v) }}
+            {% else %}
+            -
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="small">
+      Geometric properties are evaluated about centroidal axes using closed-form
+      formulas for standard shapes (rectangle, circle, I, T, etc.) or polygon-based
+      integration for general shapes.
+    </p>
+    {% else %}
+    <p>No section properties available.</p>
+    {% endif %}
+  </div>
+
+  <div class="section-block">
+    <h2>3. Material Properties</h2>
+
+    <h3>3.1 Timber class and environment</h3>
+    <table>
+      <tr>
+        <th>Timber class</th>
+        <td>{{ selected_class }}</td>
+      </tr>
+      <tr>
+        <th>Material type</th>
+        <td>{{ selected_material }}</td>
+      </tr>
+      <tr>
+        <th>Service class</th>
+        <td>{{ selected_service }}</td>
+      </tr>
+      <tr>
+        <th>Load-duration class</th>
+        <td>{{ selected_load_class }}</td>
+      </tr>
+    </table>
+
+    <h3>3.2 Characteristic strengths (reconstructed)</h3>
+    {% if factor > 0 %}
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Description</th>
+          <th>Value [MPa]</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>f<sub>t,0,k</sub></td>
+          <td>Tensile strength parallel to grain</td>
+          <td>{{ "%.3f"|format(ft0k) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>c,0,k</sub></td>
+          <td>Compressive strength parallel to grain</td>
+          <td>{{ "%.3f"|format(fc0k) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>m,k</sub></td>
+          <td>Bending strength</td>
+          <td>{{ "%.3f"|format(fmk) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>v,k</sub></td>
+          <td>Shear strength</td>
+          <td>{{ "%.3f"|format(fvk) }}</td>
+        </tr>
+      </tbody>
+    </table>
+    {% else %}
+    <p class="small">
+      Characteristic strengths could not be reconstructed because k<sub>mod</sub>/γ<sub>M</sub> = 0.
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="section-block">
+    <h2>4. Modification Factors (EC5 §2.3)</h2>
+
+    <h3>4.1 k<sub>mod</sub> factor</h3>
+    <p>
+      The modification factor k<sub>mod</sub> adjusts the characteristic strength of timber
+      to account for the load-duration class and the moisture conditions represented by
+      the service class.
+    </p>
+    <p>
+      In this verification:<br>
+      – Load-duration class: <strong>{{ selected_load_class }}</strong><br>
+      – Service class: <strong>{{ selected_service }}</strong><br>
+      – <strong>k<sub>mod</sub> = {{ "%.3f"|format(kmod) }}</strong>
+    </p>
+
+    <h3>4.2 Partial safety factor γ<sub>M</sub></h3>
+    <p>
+      The partial material factor γ<sub>M</sub> accounts for uncertainties in material
+      strength and workmanship.
+    </p>
+    <ul class="small">
+      <li>Typical value for solid timber: γ<sub>M</sub> ≈ 1.30</li>
+      <li>Typical value for glued laminated timber: γ<sub>M</sub> ≈ 1.25</li>
+    </ul>
+    <p>
+      In this calculation:
+      <strong>γ<sub>M</sub> = {{ "%.3f"|format(gamma_M) }}</strong>
+    </p>
+  </div>
+
+  <div class="section-block">
+    <h2>5. Design Strengths</h2>
+
+    <p>
+      Design strengths are obtained from the characteristic values f<sub>k</sub> by:
+    </p>
+    <p class="small">
+      f<sub>d</sub> = f<sub>k</sub> · (k<sub>mod</sub> / γ<sub>M</sub>)
+    </p>
+
+    {% if strengths %}
+    <table>
+      <thead>
+        <tr>
+          <th>Strength</th>
+          <th>Formula</th>
+          <th>Result [MPa]</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>f<sub>t,0,d</sub></td>
+          <td>f<sub>t,0,k</sub> · (k<sub>mod</sub> / γ<sub>M</sub>)</td>
+          <td>{{ "%.3f"|format(strengths.ft0_d) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>c,0,d</sub></td>
+          <td>f<sub>c,0,k</sub> · (k<sub>mod</sub> / γ<sub>M</sub>)</td>
+          <td>{{ "%.3f"|format(strengths.fc0_d) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>m,d</sub></td>
+          <td>f<sub>m,k</sub> · (k<sub>mod</sub> / γ<sub>M</sub>)</td>
+          <td>{{ "%.3f"|format(strengths.fm_x_d) }}</td>
+        </tr>
+        <tr>
+          <td>f<sub>v,d</sub></td>
+          <td>f<sub>v,k</sub> · (k<sub>mod</sub> / γ<sub>M</sub>)</td>
+          <td>{{ "%.3f"|format(strengths.fv_d) }}</td>
+        </tr>
+      </tbody>
+    </table>
+    {% else %}
+    <p>No design strength data available.</p>
+    {% endif %}
+  </div>
+
+  <div class="section-block">
+    <h2>6. Applied Internal Forces</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Description</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>N</td>
+          <td>Axial force</td>
+          <td>{{ "%.4g"|format(result.forces.N) }} N</td>
+        </tr>
+        <tr>
+          <td>M<sub>x</sub></td>
+          <td>Bending moment about x-axis</td>
+          <td>{{ "%.4g"|format(result.forces.Mx) }} N·mm</td>
+        </tr>
+        <tr>
+          <td>M<sub>y</sub></td>
+          <td>Bending moment about y-axis</td>
+          <td>{{ "%.4g"|format(result.forces.My) }} N·mm</td>
+        </tr>
+        <tr>
+          <td>V<sub>x</sub></td>
+          <td>Shear force in x-direction</td>
+          <td>{{ "%.4g"|format(result.forces.Vx) }} N</td>
+        </tr>
+        <tr>
+          <td>V<sub>y</sub></td>
+          <td>Shear force in y-direction</td>
+          <td>{{ "%.4g"|format(result.forces.Vy) }} N</td>
+        </tr>
+        <tr>
+          <td>T</td>
+          <td>Torsional moment</td>
+          <td>{{ "%.4g"|format(result.forces.T) }} N·mm</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-block">
+    <h2>7. EC5 Verification Checks</h2>
+
+    <p>
+      Below, each verification is expressed by the utilization ratio:
+      <span class="small">η = effect / resistance</span>.
+      The condition for safety is η ≤ 1.00.
+    </p>
+
+    {% if tension %}
+    <h3>7.1 Axial Tension (EC5 6.1.4)</h3>
+    <p class="small">
+      σ<sub>t</sub> = N / A, &nbsp;
+      η = σ<sub>t</sub> / f<sub>t,0,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(tension.utilization) }} –
+      {% if tension.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if compression %}
+    <h3>7.2 Axial Compression (EC5 6.1.5)</h3>
+    <p class="small">
+      σ<sub>c</sub> = N / A, &nbsp;
+      η = σ<sub>c</sub> / f<sub>c,0,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(compression.utilization) }} –
+      {% if compression.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if bending_x %}
+    <h3>7.3 Bending about x (EC5 6.1.6)</h3>
+    <p class="small">
+      σ<sub>m,x</sub> = M<sub>x</sub> / S<sub>x</sub>, &nbsp;
+      η = σ<sub>m,x</sub> / f<sub>m,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(bending_x.utilization) }} –
+      {% if bending_x.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if bending_y %}
+    <h3>7.4 Bending about y</h3>
+    <p class="small">
+      σ<sub>m,y</sub> = M<sub>y</sub> / S<sub>y</sub>, &nbsp;
+      η = σ<sub>m,y</sub> / f<sub>m,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(bending_y.utilization) }} –
+      {% if bending_y.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if bending_interaction %}
+    <h3>7.5 Combined bending interaction (EC5 6.1.8)</h3>
+    <p class="small">
+      Typical interaction:
+      (σ<sub>m,x</sub>/f<sub>m,d</sub>)² + (σ<sub>m,y</sub>/f<sub>m,d</sub>)² ≤ 1 <br>
+      or linear form:
+      σ<sub>m,x</sub>/f<sub>m,d</sub> + k<sub>m</sub>·σ<sub>m,y</sub>/f<sub>m,d</sub> ≤ 1,
+      with k<sub>m</sub> = {{ "%.2f"|format(strengths.km) }}.
+    </p>
+    <p>
+      η = {{ "%.3f"|format(bending_interaction.utilization) }} –
+      {% if bending_interaction.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if shear %}
+    <h3>7.6 Shear (EC5 6.1.7)</h3>
+    <p class="small">
+      τ<sub>x</sub> = V<sub>x</sub> / A<sub>v,x</sub>, &nbsp;
+      τ<sub>y</sub> = V<sub>y</sub> / A<sub>v,y</sub>, &nbsp;
+      η = max(τ<sub>x</sub>, τ<sub>y</sub>) / f<sub>v,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(shear.utilization) }} –
+      {% if shear.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    {% if torsion %}
+    <h3>7.7 Torsion</h3>
+    <p class="small">
+      τ<sub>t</sub> ≈ T / J<sub>t</sub> (Saint-Venant torsion), &nbsp;
+      η = τ<sub>t</sub> / f<sub>v,d</sub>
+    </p>
+    <p>
+      η = {{ "%.3f"|format(torsion.utilization) }} –
+      {% if torsion.ok %}
+      <span class="ok">OK</span>
+      {% else %}
+      <span class="not-ok">NOT OK</span>
+      {% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="section-block">
+    <h2>8. Governing Check</h2>
+    <p>
+      The most critical verification is:
+    </p>
+    <p>
+      <strong>{{ governing.name }}</strong> → η =
+      {{ "%.3f"|format(governing.utilization) }}
+      (limit {{ "%.3f"|format(governing.limit) }}) –
+      {% if governing.ok %}
+      <span class="ok">OK – Member satisfies EC5 ULS</span>
+      {% else %}
+      <span class="not-ok">NOT OK – Member does not satisfy EC5 ULS</span>
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="section-block">
+    <h2>9. Notes / Recommendations</h2>
+    <ul class="small">
+      <li>
+        Torsion for rectangles and I-sections is evaluated using Saint-Venant theory and
+        should be treated as approximate.
+      </li>
+      <li>
+        Shear verification uses effective shear strength f<sub>v,d</sub>. If shear
+        utilization is high, verify local effects at supports and connections.
+      </li>
+      <li>
+        If η &gt; 1.0, consider increasing the section size, adopting a higher timber class
+        (e.g. GL instead of C class), reducing spans or bending moments, or improving
+        the structural detailing to reduce torsion and shear.
+      </li>
+    </ul>
+  </div>
+
+  <div class="section-block">
+    <h2>10. Conclusion</h2>
+    <p>
+      The above verifications are performed according to
+      <strong>EN 1995-1-1:2004 Eurocode 5 – Timber structures, Part 1-1</strong>,
+      with default National Annex parameters unless otherwise specified.
+    </p>
+    <p>
+      Design strengths are based on the selected timber strength class, k<sub>mod</sub>
+      for the specified load-duration and service class, and the partial factor γ<sub>M</sub>.
+      Internal forces are assumed to be design values (E<sub>d</sub>).
+    </p>
+  </div>
+
+</div>
