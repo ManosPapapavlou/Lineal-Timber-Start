@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional
 from .properties import get_section_properties  # <-- CHANGE HERE
 
 
-
 # ---------------------------------
 # Data containers
 # ---------------------------------
@@ -183,6 +182,39 @@ def _compute_basic_stresses(section: Dict[str, float],
 # ---------------------------------
 # Mother of checks
 # ---------------------------------
+def _torsion_shape_factor(shape: str, section: Dict[str, float]) -> float:
+    """
+    EC5 6.1.8 / 6.15:
+        τ_tor,d ≤ k_shape * f_v,d
+
+    k_shape =
+        1.2                         for circular cross-section
+        min(1 + 0.15 * h/b, 2.0)    for rectangular cross-section
+    where h is the largest cross-sectional dimension, b the other one.
+
+    For other shapes we take k_shape ≈ 1.0 (neutral).
+    """
+    s = shape.lower()
+
+    # full dimensions from half-spans
+    bx = 2.0 * section.get("x_right", 0.0)
+    hy = 2.0 * section.get("y_top", 0.0)
+
+    # circular cross sections
+    if s in ("circle", "chs"):
+        return 1.2
+
+    # rectangular / RHS / “plate-like” shapes
+    if s in ("rectangle", "rect", "square", "rhs", "trapezoid", "triangle"):
+        if bx > 0.0 and hy > 0.0:
+            h = max(bx, hy)   # largest dimension
+            b = min(bx, hy)   # other dimension
+            k = 1.0 + 0.15 * (h / b)
+            return min(k, 2.0)
+        return 1.0
+
+    # I / T or anything else → k_shape ≈ 1.0
+    return 1.0
 
 def run_ec5_basic_checks(
     shape: str,
@@ -195,14 +227,19 @@ def run_ec5_basic_checks(
 
     - Accepts ANY section shape supported by get_section_properties().
     - Computes basic stresses.
+    - Automatically assigns k_m according to EC5 6.1.6 for
+      solid timber / glulam / LVL:
+          * rectangular: k_m = 0.7
+          * other cross-sections: k_m = 1.0
+      (for panels/boards you can overwrite strengths.km before calling)
     - Performs:
         * axial tension & compression (no buckling)
         * bending about x and y
-        * biaxial bending interaction (6.1.6) even if N = 0
+        * biaxial bending interaction (6.1.6)
         * shear in x and y
         * torsion (6.1.8 style)
         * combined bending + axial tension (6.2.3)
-        * combined bending + axial compression (6.2.4, simplified)
+        * combined bending + axial compression (6.2.4)
     - Returns all CheckResult plus the governing one.
     """
 
@@ -211,6 +248,17 @@ def run_ec5_basic_checks(
 
     # 2) Stresses
     s = _compute_basic_stresses(section, forces)
+
+    # 3) Assign k_m according to EC5 6.1.6
+    # For solid timber, glued laminated timber and LVL:
+    #   rectangular sections: k_m = 0.7
+    #   other cross-sections: k_m = 1.0
+    # For other wood-based structural products: k_m = 1.0
+    shape_lower = shape.lower()
+    if shape_lower in ("rectangle", "rect", "square"):
+        strengths.km = 0.7
+    else:
+        strengths.km = 1.0
 
     checks: List[CheckResult] = []
 
@@ -274,24 +322,35 @@ def run_ec5_basic_checks(
         ))
 
     # ==============
-    # Biaxial bending interaction (6.1.6)
-    #   σ_mx/fm_y + σ_my/fm_x ≤ k_m
+    # Biaxial bending interaction (EC5 6.1.6)
+    #
+    # σ_m,y,d / f_m,y,d + k_m σ_m,z,d / f_m,z,d ≤ 1      (6.11)
+    # k_m σ_m,y,d / f_m,y,d + σ_m,z,d / f_m,z,d ≤ 1      (6.12)
+    # In our notation:
+    #   σ_mx_max ↔ σ_m,y,d  with capacity f_m,y,d
+    #   σ_my_max ↔ σ_m,z,d  with capacity f_m,x,d
+    # We take the worst (max) of the two expressions.
     # ==============
     term_mx_bi = sigma_mx_max / strengths.fm_y_d if strengths.fm_y_d > 0.0 else 0.0
     term_my_bi = sigma_my_max / strengths.fm_x_d if strengths.fm_x_d > 0.0 else 0.0
-    eta_bi = term_mx_bi + term_my_bi
 
     if term_mx_bi > 0.0 or term_my_bi > 0.0:
+        eta_6_11 = term_mx_bi + strengths.km * term_my_bi
+        eta_6_12 = strengths.km * term_mx_bi + term_my_bi
+        eta_bi = max(eta_6_11, eta_6_12)
+
         checks.append(CheckResult(
             name="bending_biaxial",
             utilization=eta_bi,
-            ok=(eta_bi <= strengths.km),
-            limit=strengths.km,
+            ok=(eta_bi <= 1.0),
+            limit=1.0,
             details=(
-                "EC5 6.1.6: σ_mx/f_m,y + σ_my/f_m,x = "
-                f"{eta_bi:.3f} (limit k_m={strengths.km})"
+                "EC5 6.1.6: max[(6.11), (6.12)] = "
+                f"{eta_bi:.3f} (limit 1.0, k_m={strengths.km})"
             ),
             extra={
+                "eta_6_11": eta_6_11,
+                "eta_6_12": eta_6_12,
                 "term_mx": term_mx_bi,
                 "term_my": term_my_bi,
             }
@@ -322,21 +381,29 @@ def run_ec5_basic_checks(
             extra={"tau_y": tau_y}
         ))
 
-    # ==============
-    # Torsion check (6.1.8 style)
-    # τ_tor,d ≤ k_shape * f_v,d
-    # τ_tor ≈ T * r_max / Jt
+        # ==============
+    # Torsion check (EC5 6.1.8)
+    #
+    # τ_tor,d ≤ k_shape * f_v,d      (6.14)
+    # with
+    #   k_shape = 1.2                for circular cross section
+    #   k_shape = min(1 + 0.15 h/b, 2.0)  for rectangular cross section (6.15)
+    #
+    # Here:
+    #   τ_tor,d ≈ |T| * r_max / Jt
+    #   r_max = distance of furthest fibre from centroid
     # ==============
     Jt = section.get("Jt", None)
     if Jt is not None and Jt != 0.0 and abs(forces.T) > 0.0:
-        # distance of furthest fibre from centroid
+        # distance of furthest fibre from centroid (using x_right, y_top)
         x_right = section.get("x_right", 0.0)
         y_top = section.get("y_top", 0.0)
         r_max = (x_right**2 + y_top**2) ** 0.5
 
-        tau_tor = abs(forces.T) * r_max / Jt  # consistent units: T[N·len], Jt[len^4]
+        # torsional shear stress τ_tor,d
+        tau_tor = abs(forces.T) * r_max / Jt   # T[N·len], Jt[len^4] → stress
 
-        # choose a shear strength to compare with:
+        # choose a design shear strength f_v,d
         fv_design = strengths.fv_d
         if fv_design is None:
             fv_design = max(strengths.fv_x_d, strengths.fv_y_d, 0.0)
@@ -344,10 +411,12 @@ def run_ec5_basic_checks(
         if fv_design > 0.0:
             k_shape = _torsion_shape_factor(shape, section)
             eta_tor = tau_tor / (k_shape * fv_design)
+
             checks.append(CheckResult(
                 name="torsion",
                 utilization=eta_tor,
                 ok=(eta_tor <= 1.0),
+                limit=1.0,
                 details=(
                     f"EC5 6.1.8: τ_tor,d / (k_shape f_v,d) = {eta_tor:.3f} "
                     f"(k_shape={k_shape:.2f})"
@@ -360,67 +429,76 @@ def run_ec5_basic_checks(
                 }
             ))
 
+
     # ==============
-    # Combined bending + axial tension (6.2.3)
+    # Combined bending + axial tension (EC5 6.2.3)
     #
-    # σ_mx/fm_y + σ_my/fm_x + σ_t0/ft0 ≤ k_m
+    # (σ_t0 / f_t0,d) + (σ_mx / f_m,y,d) + k_m (σ_my / f_m,x,d) ≤ 1   (6.17)
+    # (σ_t0 / f_t0,d) + k_m (σ_mx / f_m,y,d) + (σ_my / f_m,x,d) ≤ 1   (6.18)
+    # We take the worst (max) of the two.
     # ==============
     if forces.N > 0.0 and strengths.ft0_d > 0.0:
-        sigma_t0 = s["sigma_N"]
+        sigma_t0 = s["sigma_N"]  # axial tension stress (≥ 0)
 
+        term_t = sigma_t0 / strengths.ft0_d
         term_mx = sigma_mx_max / strengths.fm_y_d if strengths.fm_y_d > 0.0 else 0.0
         term_my = sigma_my_max / strengths.fm_x_d if strengths.fm_x_d > 0.0 else 0.0
-        term_Nt = sigma_t0 / strengths.ft0_d
 
-        eta_comb_t = term_mx + term_my + term_Nt
+        eta_6_17 = term_t + term_mx + strengths.km * term_my
+        eta_6_18 = term_t + strengths.km * term_mx + term_my
+        eta_comb_t = max(eta_6_17, eta_6_18)
 
         checks.append(CheckResult(
             name="combined_bending_tension",
             utilization=eta_comb_t,
-            ok=(eta_comb_t <= strengths.km),
-            limit=strengths.km,
+            ok=(eta_comb_t <= 1.0),
+            limit=1.0,
             details=(
-                "EC5 6.2.3: σ_mx/f_m,y + σ_my/f_m,x + σ_t0/f_t0 "
-                f"= {eta_comb_t:.3f} (limit k_m={strengths.km})"
+                "EC5 6.2.3: max[(6.17), (6.18)] = "
+                f"{eta_comb_t:.3f} (limit 1.0, k_m={strengths.km})"
             ),
             extra={
+                "eta_6_17": eta_6_17,
+                "eta_6_18": eta_6_18,
+                "term_t": term_t,
                 "term_mx": term_mx,
                 "term_my": term_my,
-                "term_Nt": term_Nt,
             }
         ))
 
     # ==============
-    # Combined bending + axial compression (6.2.4, simplified)
+    # Combined bending + axial compression (EC5 6.2.4)
     #
-    # sqrt( (σ_mx/fm_y + σ_my/fm_x)^2 + (σ_c0/fc0)^2 ) ≤ k_m
+    # (σ_c0 / f_c0,d)^2 + (σ_mx / f_m,y,d) + k_m (σ_my / f_m,x,d) ≤ 1   (6.19)
+    # (σ_c0 / f_c0,d)^2 + k_m (σ_mx / f_m,y,d) + (σ_my / f_m,x,d) ≤ 1   (6.20)
+    # We take the worst (max) of the two.
     # ==============
     if forces.N < 0.0 and strengths.fc0_d > 0.0:
-        sigma_c0 = abs(s["sigma_N"])
+        sigma_c0 = abs(s["sigma_N"])  # axial compression stress (≥ 0)
 
+        term_c2 = (sigma_c0 / strengths.fc0_d) ** 2
         term_mx = sigma_mx_max / strengths.fm_y_d if strengths.fm_y_d > 0.0 else 0.0
         term_my = sigma_my_max / strengths.fm_x_d if strengths.fm_x_d > 0.0 else 0.0
-        term_c = sigma_c0 / strengths.fc0_d
 
-        Rm = term_mx + term_my
-        Rc = term_c
-        eta_comb_c = (Rm**2 + Rc**2) ** 0.5
+        eta_6_19 = term_c2 + term_mx + strengths.km * term_my
+        eta_6_20 = term_c2 + strengths.km * term_mx + term_my
+        eta_comb_c = max(eta_6_19, eta_6_20)
 
         checks.append(CheckResult(
             name="combined_bending_compression",
             utilization=eta_comb_c,
-            ok=(eta_comb_c <= strengths.km),
-            limit=strengths.km,
+            ok=(eta_comb_c <= 1.0),
+            limit=1.0,
             details=(
-                "EC5 6.2.4 (simplified): sqrt( (σ_mx/f_m,y + σ_my/f_m,x)^2 "
-                f"+ (σ_c0/f_c0)^2 ) = {eta_comb_c:.3f} (limit k_m={strengths.km})"
+                "EC5 6.2.4: max[(6.19), (6.20)] = "
+                f"{eta_comb_c:.3f} (limit 1.0, k_m={strengths.km})"
             ),
             extra={
-                "Rm": Rm,
-                "Rc": Rc,
+                "eta_6_19": eta_6_19,
+                "eta_6_20": eta_6_20,
+                "term_c2": term_c2,
                 "term_mx": term_mx,
                 "term_my": term_my,
-                "term_c": term_c,
             }
         ))
 

@@ -5,9 +5,10 @@ TIMBER_PATH = Path(__file__).with_name("timber_strength_classes.json")
 
 def get_timber_class(cls: str) -> dict:
     data = json.loads(TIMBER_PATH.read_text(encoding="utf-8"))
-    cols = data["columns"]
-    vals = data["data"][cls]
+    cols = data["columns"]          # includes "class"
+    vals = [cls] + data["data"][cls]  # prepend the class string
     return dict(zip(cols, vals))
+
 
 # Example
 if __name__ == "__main__":
